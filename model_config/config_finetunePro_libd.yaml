@@ -1,0 +1,23 @@
+data_name: "151673"
+r: 600  # IMPORTANT !!!!
+replicate: "_rep1R600"  # IMPORTANT !!!!
+name_truth: "layer_guess"
+tissue_region: "Human dorsolateral prefrontal cortex"
+model_type: "finetunePro_151507"  # IMPORTANT !!!!
+openai_url: "/v1/chat/completions"
+use_full_name: false  # because the full cell type names are already in the data
+with_self_type: false
+with_region_name: true
+Graph_type: "countPlusGenes"  # IMPORTANT !!!!
+with_negatives: false
+with_CoT: false
+minimal_f: 0.0  # this should adjust according to the neighbor_count
+top_n: 7  # this should adjust according to the neighbor_count and number of cell types
+with_numbers: false
+with_domain_name: true
+gpt_model: "ft:gpt-4o-mini-2024-07-18:whh:finetunepro-1515070-3-600:AcIQHn8f"  # IMPORTANT !!!!
+oneshot_prompt: ""
+system_prompt: ""
+output_type: "niche"
+minimal_gene_threshold: 0
+prototype_p: 0.3  # IMPORTANT !!!!

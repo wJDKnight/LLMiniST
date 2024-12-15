@@ -1,0 +1,22 @@
+data_name: "MERFISH_25"
+r: 100
+replicate: "_rep1"
+name_truth: "ground_truth"
+tissue_region: "mouse hypothalamic preoptic region"
+model_type: "zeroshot_end2end"
+openai_url: "/v1/chat/completions"
+use_full_name: false  # because the full cell type names are already in the data
+with_self_type: false
+with_region_name: true
+Graph_type: "countPlusGenes"
+with_negatives: false
+with_CoT: false
+minimal_f: 0.1  # this should adjust according to the neighbor_count
+top_n: 10  # this should adjust according to the neighbor_count and number of cell types
+with_numbers: false
+with_domain_name: true
+gpt_model: "gpt-4o-mini"
+oneshot_prompt: ""
+system_prompt: ""
+output_type: "niche"
+minimal_gene_threshold: 0
