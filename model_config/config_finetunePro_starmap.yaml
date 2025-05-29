@@ -12,7 +12,7 @@ Graph_type: "count"
 with_negatives: false
 with_CoT: false
 minimal_f: 0  
-top_n: 10
+top_n: 99 
 with_numbers: false
 with_domain_name: true
 gpt_model: "ft:gpt-4o-mini-2024-07-18:whh:finetunepro-bz5-700:AcgTo16s"

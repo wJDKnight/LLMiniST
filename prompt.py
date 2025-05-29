@@ -94,7 +94,10 @@ Cell types are ordered from most frequent to least frequent.{config.text_frequen
 You should consider how different combinations of cell types form microenvironments. \
 The target cell can only be one of the {len(config.domain_mapping)} microenvironments: {', '.join(config.domain_mapping.values())}.{negatives} \
 Below are the cell's neighbor cell-types.\n """
-    result += f" {multi_rows_strings}\n  Only output the most possible microenvironment in the plain text like this: Outputs: {{'microenvironment 1'}} "
+    if config.confident_output:
+        result += f" {multi_rows_strings}\n  Output the most possible microenvironment and a confidence score about how confident the prediction is. Output plain text like this:  ['microenvironment 1': 'confidence score']"
+    else:
+        result += f" {multi_rows_strings}\n  Only output the most possible microenvironment in the plain text like this: Outputs: {{'microenvironment 1'}} "
 
     return(result)
 

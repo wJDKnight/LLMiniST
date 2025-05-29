@@ -5,7 +5,8 @@ import ast
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
 from scipy.sparse import csr_matrix
-
+from collections import defaultdict
+from tqdm import tqdm
 from dataclasses import dataclass
 import os
 import yaml
@@ -14,20 +15,25 @@ import pandas as pd
 import json
 
 from scipy.spatial.distance import cdist
+import scipy
+from sklearn.metrics import adjusted_rand_score
+from typing import Optional
 
 @dataclass
 class Config:
     data_name: str
-    r: int
-    name_truth: str
+    r: float
     tissue_region: str
+    celltype_name: str
+    pos_name: list[str]
     model_type: str
-    minimal_f: float
+    minimal_f: float   # minimal frequency of cell type in the neighborhood
     top_n: int
     Graph_type: str
     with_negatives: bool
-    with_CoT: bool
     with_numbers: bool 
+    with_CoT: bool = False
+    name_truth: Optional[str] = None
     replicate: str = ""
     openai_url: str = "/v1/chat/completions"
     use_full_name: bool = False
@@ -40,7 +46,7 @@ class Config:
     system_prompt: str = ""
     minimal_gene_threshold: float = 0.0
     prototype_p: float = 0.0
-
+    confident_output: bool = False
     def __post_init__(self):
         if self.prototype_p > 0:
             self.model_type = f"{self.model_type}{self.prototype_p}"
@@ -155,6 +161,12 @@ def extract_output_microenvironments(text):
     return extracted_data
 
 
+
+
+
+
+
+
 def sparse_adjacency(locations, threshold, add_diagonal=False):
     """
     Computes a sparse adjacency matrix from location data.
@@ -185,6 +197,83 @@ def sparse_adjacency(locations, threshold, add_diagonal=False):
     return adj_matrix_sparse, distances
 
 
+def prepare_neighbor_data(adata, config, representetive_gene_list=None):
+    """
+    Prepare neighbor data for spatial analysis.
+    
+    Parameters:
+    -----------
+    adata : AnnData
+        Annotated data object containing spatial transcriptomics data
+    config : object
+        Configuration object with attributes: pos_name, celltype_name, r, Graph_type
+    representetive_gene_list : list, optional
+        List of representative genes for analysis. If None and Graph_type != "count", 
+        all available genes will be used.
+        
+    Returns:
+    --------
+    neighbor_normalized_df : pd.DataFrame
+        Normalized neighbor cell type counts
+    neighbor_normalized_df_genes : pd.DataFrame or None
+        Normalized neighbor gene expression (if Graph_type != "count")
+    adj_matrix : scipy.sparse matrix
+        Adjacency matrix with diagonal added
+    """
+    import scanpy as sc
+    
+    pos_data = adata.obs[config.pos_name]
+    names_celltypes = adata.obs[config.celltype_name].unique()
+    celltype_data = adata.obs[names_celltypes]
+
+    # --- Compute adjacency matrix ---
+    r = config.r
+    adj_matrix, distances = sparse_adjacency(pos_data, threshold=r)
+    # add diagonal to the adj_matrix
+    adj_matrix = adj_matrix + scipy.sparse.diags(np.ones(adj_matrix.shape[0]))
+
+    # --- Calculate neighbor counts ---
+    neighbor_count = adj_matrix.dot(celltype_data)
+    n_neighbors = adj_matrix.sum(axis=1).A1  # .A1 converts to 1D numpy array
+    # Convert n_neighbors to a column vector for element-wise division
+    n_neighbors_col = n_neighbors.reshape(-1, 1)
+    # Perform element-wise division between neighbor_count and n_neighbors_col
+    neighbor_matrix_normalized = neighbor_count / n_neighbors_col
+
+    neighbor_normalized_df = pd.DataFrame(neighbor_matrix_normalized, 
+                                  index=celltype_data.index, 
+                                  columns=names_celltypes)
+
+    neighbor_normalized_df_genes = None
+    if config.Graph_type != "count":
+        # Normalize data
+        sc.pp.filter_genes(adata, min_cells=10)
+        sc.pp.normalize_total(adata, inplace=True)
+        sc.pp.log1p(adata)
+        sc.pp.scale(adata)
+
+        # Use provided gene list or all available genes
+        if representetive_gene_list is not None:
+            top_genes = representetive_gene_list
+            common_genes = list(set(adata.var_names) & set(top_genes))
+            adata = adata[:, common_genes]
+            gene_columns = top_genes
+        else:
+            # Use all available genes
+            common_genes = adata.var_names.tolist()
+            gene_columns = common_genes
+            
+        # --- Calculate neighbor genes ---
+        neighbor_genes = adj_matrix.dot(adata.X)
+        # Perform element-wise division between neighbor_count and n_neighbors_col
+        neighbor_matrix_normalized_genes = neighbor_genes / n_neighbors_col
+        neighbor_normalized_df_genes = pd.DataFrame(neighbor_matrix_normalized_genes, 
+                                    index=adata.obs_names, 
+                                    columns=gene_columns)
+    
+    return neighbor_normalized_df, neighbor_normalized_df_genes, adj_matrix
+
+
 def run_gemini(model, gen_config, df, config, prompt_func,  n_rows=1, start_idx=0, end_idx=None, df_extra = None, column_name = None):
     df = df.copy()
     gemini_results_df = pd.DataFrame()
@@ -200,13 +289,21 @@ def run_gemini(model, gen_config, df, config, prompt_func,  n_rows=1, start_idx=
             prompt_q = config.oneshot_prompt + prompt_func(df, df_extra, rows, config)
         response = model.generate_content(prompt_q, generation_config=gen_config)
         store_responses.append(response.text)
-        extract_dict = extract_output_microenvironments(response.text)
-        gemini_results_df = pd.concat([gemini_results_df, pd.DataFrame(extract_dict.values(), index=rows)], ignore_index=False)
-        if len(extract_dict) != n_rows:
-            print(f"Error: {len(extract_dict)} != {n_rows}")
-            print(f"{i = }")
-            print(response.text)
-        time.sleep(0.5)
+        if config.confident_output:
+            extract_dict = extract_microenvironments_and_confidence(response.text)
+            gemini_results_df = pd.concat([gemini_results_df, 
+                                           pd.DataFrame({
+                                               column_name: extract_dict.environments,
+                                               'confidence': extract_dict.confidence
+                                           }, index=rows)], ignore_index=False)
+        else:
+            extract_dict = extract_output_microenvironments(response.text)
+            gemini_results_df = pd.concat([gemini_results_df, pd.DataFrame(extract_dict.values(), index=rows)], ignore_index=False)
+        # if len(extract_dict) != n_rows:
+        #     print(f"Error: {len(extract_dict)} != {n_rows}")
+        #     print(f"{i = }")
+        #     print(response.text)
+        time.sleep(0.2)
         # every 100 rows, save the response
         if (i + 1) % 100 == 0:
             print(i+1)
@@ -220,7 +317,7 @@ def run_gemini(model, gen_config, df, config, prompt_func,  n_rows=1, start_idx=
     return gemini_results_df, store_responses
 
 
-def generate_json_end2end(df, config, prompt_func, batch_size = 5000, max_completion_tokens = 128, n_rows = 1, df_extra = None):
+def generate_json_end2end(df, config, prompt_func, batch_size = 5000, max_completion_tokens = 1024, n_rows = 1, df_extra = None):
     """
     df: data frame of neighbor counts
     config: config of the experiment
@@ -272,7 +369,8 @@ def generate_json_end2end(df, config, prompt_func, batch_size = 5000, max_comple
                                 "content": p
                             }
                         ],
-                        "max_completion_tokens": max_completion_tokens
+                        "max_completion_tokens": max_completion_tokens,
+                        "logprobs": True
                     }
                 }
                 # 将字典转为JSON字符串，并写入文件
@@ -580,3 +678,297 @@ def find_high_confidence_cells(adata, label_key, pos_data = None,  k=10, distanc
                 high_confidence_mask[i] = True
     
     return high_confidence_mask
+
+from dataclasses import dataclass
+from typing import List, Dict
+
+@dataclass
+class MicroenvironmentResult:
+    """Class for storing a microenvironment and its confidence score."""
+    environments: str
+    confidence: float
+
+def extract_microenvironments_and_confidence(text: str) -> MicroenvironmentResult:
+    """
+    Extracts a microenvironment and its confidence score from the given text.
+    
+    Args:
+        text (str): The text containing microenvironment and confidence score.
+                   Expected format like "['Layer 1': 0.8]" or similar.
+        
+    Returns:
+        MicroenvironmentResult: An object with environment (str) and confidence (float) attributes.
+    """
+    import re
+    import ast
+    import json
+    
+    # Replace newlines for easier pattern matching
+    text = text.replace("\n", " ")
+    
+    # Try to find patterns like ['key': value] or {'key': value}
+    pattern = r'[\[\{][\'\"](.+?)[\'\"]:\s*([0-9.]+)[\]\}]'
+    matches = re.findall(pattern, text)
+    
+    # Default values
+    environment = ""
+    confidence_score = 0.0
+    
+    if not matches:
+        # Try to find dictionary-like patterns and convert to valid Python syntax
+        try:
+            # Replace single quotes with double quotes for keys
+            processed_text = re.sub(r"(\[|\{)\s*'([^']+)':", r'{\"\2\":', text)
+            processed_text = processed_text.replace("]", "}")
+            
+            # Try to find dictionary pattern in the processed text
+            dict_pattern = r'({.*?})'
+            dict_matches = re.findall(dict_pattern, processed_text)
+            
+            if dict_matches:
+                for match in dict_matches:
+                    try:
+                        # Try to parse as Python dictionary
+                        parsed_dict = ast.literal_eval(match)
+                        if isinstance(parsed_dict, dict) and len(parsed_dict) > 0:
+                            # Get the first key-value pair
+                            env, conf = next(iter(parsed_dict.items()))
+                            environment = env
+                            if isinstance(conf, str):
+                                conf = float(conf)
+                            confidence_score = conf
+                            break  # Only take the first key-value pair
+                    except (SyntaxError, ValueError) as e:
+                        print(f"Error parsing processed dictionary: {e}")
+                        continue
+            else:
+                print(f"Warning: No dictionary-like patterns found in the text: {text[:100]}...")
+        except Exception as e:
+            print(f"Error processing text: {e}")
+            print(f"Original text: {text[:100]}...")
+    else:
+        # Process direct regex matches - take only the first match
+        environment, conf = matches[0]
+        try:
+            confidence_score = float(conf)
+        except ValueError:
+            print(f"Warning: Could not convert confidence '{conf}' to float")
+            confidence_score = 0.0
+    
+    return MicroenvironmentResult(environments=environment, confidence=confidence_score)
+
+
+def calculate_neighborhood_ari(adata_obs, adj_matrix, name_1, name_2):
+    """
+    Calculate ARI between two clustering labels for each cell's neighborhood
+    
+    Parameters:
+    -----------
+    adata_obs : pd.DataFrame
+        DataFrame containing 'niche' and 'zeroshot_gpt4o_mini_refined' columns
+    adj_matrix : np.ndarray or sparse matrix
+        Adjacency matrix of cells
+        
+    Returns:
+    --------
+    pd.Series
+        ARI scores for each cell's neighborhood
+    """
+    # Convert adjacency matrix to sparse if it isn't already
+    if not scipy.sparse.issparse(adj_matrix):
+        adj_matrix = scipy.sparse.csr_matrix(adj_matrix)
+    
+    # Initialize array to store ARI scores
+    neighborhood_ari = np.zeros(len(adata_obs))
+    
+    # Get labels as numpy arrays
+    niche_labels = adata_obs[name_1].values
+    zeroshot_labels = adata_obs[name_2].values
+    
+    # Calculate ARI for each cell's neighborhood
+    for i in range(len(adata_obs)):
+        # Get indices of neighboring cells (including self)
+        neighbors = adj_matrix[i].nonzero()[1]
+        
+        if len(neighbors) > 1:  # Only calculate if there are neighbors
+            # Get labels for the neighborhood
+            neighborhood_niche = niche_labels[neighbors]
+            neighborhood_zeroshot = zeroshot_labels[neighbors]
+            
+            # Calculate ARI for the neighborhood
+            ari = adjusted_rand_score(neighborhood_niche, neighborhood_zeroshot)
+            neighborhood_ari[i] = ari
+        else:
+            neighborhood_ari[i] = np.nan  # Set to NaN if no neighbors
+    
+    # Return as pandas dataframe
+    return pd.DataFrame(
+        neighborhood_ari, 
+        index=adata_obs.index, 
+        columns=['neighborhood_ari']
+    )
+
+
+
+
+# Step 1: Run the function for all rows and store results
+def get_unique_prompts(df, config, prompt_func, df_extra=None):
+    """
+    Identify rows that produce the same prompt text when passed through the zeroshot_celltype function.
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        The neighbor_normalized_df dataframe
+    config : object
+        The configuration object with parameters for zeroshot_celltype
+    prompt_func : function 
+        The prompt function to use
+    df_extra : pandas.DataFrame, optional
+        Additional dataframe (e.g., for gene expression data)
+    Returns:
+    --------
+    tuple: (unique_indices, idx_mapping, inverse_mapping)
+        - unique_indices: indices of only unique rows
+        - idx_mapping: Dictionary mapping original indices to unique indices
+        - inverse_mapping: Dictionary mapping unique indices to lists of original indices
+    """
+    all_prompts = {}
+    
+    # Generate prompts for each row and track duplicates
+    print("Generating prompts for each row...")
+    for i in tqdm(range(len(df))):
+        if df_extra is None:
+            prompt_text = prompt_func(df, [i], config)
+        else:
+            prompt_text = prompt_func(df, df_extra, [i], config)
+        
+        # Use the prompt text as a key to find duplicates
+        if prompt_text not in all_prompts:
+            all_prompts[prompt_text] = []
+        all_prompts[prompt_text].append(i)
+    
+    # Create a mapping from original indices to unique indices
+    idx_mapping = {}
+    inverse_mapping = {}
+    unique_indices = []
+    
+    for unique_idx, (_, indices) in enumerate(all_prompts.items()):
+        representative_idx = indices[0]  # Use the first index as representative
+        unique_indices.append(representative_idx)
+        inverse_mapping[unique_idx] = indices
+        
+        for idx in indices:
+            idx_mapping[idx] = unique_idx
+    
+    
+    print(f"Reduced from {len(df)} rows to {len(unique_indices)} unique prompts")
+    
+    return unique_indices, idx_mapping, inverse_mapping
+
+# Step 2: Use the results to map back to full labels
+def restore_full_labels_df(reduced_labels_df, inverse_mapping):
+    """
+    Restore full labels from reduced dataframe results
+    
+    Parameters:
+    -----------
+    reduced_labels_df : pandas.DataFrame
+        DataFrame with labels for the reduced/deduplicated dataset
+    inverse_mapping : dict
+        Mapping from reduced indices to lists of original indices
+        
+    Returns:
+    --------
+    pandas.DataFrame: Full labels corresponding to the original dataset
+    """
+    # Determine the length of the original dataset
+    original_length = max(max(idxs) for idxs in inverse_mapping.values()) + 1
+    
+    # Extract column name from the reduced labels dataframe
+    column_name = reduced_labels_df.columns[0]
+    
+    # Initialize a new dataframe for full labels with the same column name
+    full_labels_df = pd.DataFrame(index=range(original_length), columns=[column_name])
+    
+    # Map reduced labels back to original indices
+    for reduced_idx, orig_indices in inverse_mapping.items():
+        label = reduced_labels_df.iloc[reduced_idx, 0]  # Get the label from the first column
+        for orig_idx in orig_indices:
+            full_labels_df.loc[orig_idx, column_name] = label
+    
+    return full_labels_df
+
+
+
+def process_batch_results(config, n_batch=1, extract_function=None):
+    """
+    Process batch results from GPT API response files and extract data into a DataFrame.
+    
+    Parameters:
+    -----------
+    config : object
+        Configuration object containing data_name, output_path, and other parameters
+    n_batch : int, default=1
+        Number of batches to process
+    extract_function : callable, default=None
+        Function to extract outputs from content. If None, uses extract_output_microenvironments
+    
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame containing extracted results with custom_id as index
+    """
+    if extract_function is None:
+        extract_function = extract_output_microenvironments
+    
+    gpt_results_df = pd.DataFrame()
+    
+    for i in range(1, n_batch + 1):
+        save_name = f"response_{config.data_name}_{i}_{config.use_full_name}_{config.with_self_type}_{config.with_region_name}_{config.Graph_type}_{config.with_negatives}_{config.with_CoT}_{config.with_numbers}_{config.with_domain_name}{config.replicate}.txt"
+        output_file_name = f"{config.output_path}/{save_name}"
+        
+        try:
+            # Read file and process line by line
+            with open(output_file_name, 'r', encoding='utf-8') as file:
+                for line_num, line in enumerate(file, 1):
+                    try:
+                        # Parse JSON string from each line
+                        json_data = json.loads(line.strip())
+                        
+                        # Extract custom_id and content information
+                        custom_id = json_data['custom_id']
+                        content = json_data['response']['body']['choices'][0]['message']['content']
+                        
+                        # Clean up content formatting
+                        content = (content.replace('\n-', " ")
+                                         .replace('```', "")
+                                         .replace('json', "")
+                                         .replace('plaintext', '')
+                                         .replace('python', '')
+                                         .replace('Output:', 'Outputs:')
+                                         .replace('\n', " "))
+
+                        # Extract outputs using the provided function
+                        extract_dict = extract_function(content)
+
+                        # Add extracted information to DataFrame
+                        gpt_results_df = pd.concat([
+                            gpt_results_df, 
+                            pd.DataFrame(extract_dict.values(), index=[custom_id])
+                        ], ignore_index=False)
+                            
+                    except json.JSONDecodeError as e:
+                        print(f"JSONDecodeError in batch {i}, line {line_num}: {e}")
+                        print(f"Problematic line: {line[:100]}...")
+                    except KeyError as e:
+                        print(f"KeyError in batch {i}, line {line_num}: Missing key {e}")
+                    except Exception as e:
+                        print(f"Unexpected error in batch {i}, line {line_num}: {e}")
+                        
+        except FileNotFoundError:
+            print(f"File not found: {output_file_name}")
+        except Exception as e:
+            print(f"Error processing batch {i}: {e}")
+    
+    return gpt_results_df
