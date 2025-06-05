@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy
-from utils import *
-import prompt
+from src.utils import *
+import src.prompt as prompt
 import subprocess
 import openai
 

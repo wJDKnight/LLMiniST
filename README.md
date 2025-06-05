@@ -4,7 +4,7 @@ This repository contains a collection of tools and scripts for identifying niche
 
 ## Overview
 
-（see you soon）
+see you soon
 
 ## Project Structure
 

@@ -20,13 +20,19 @@ if len(sys.argv) > 2:
 
 print(config)
 
+if len(sys.argv) > 4:
+    parallel_run = sys.argv[4]
+else:
+    parallel_run = "None"
+print(parallel_run)
+
 if not os.path.exists(config.output_path):
     # Create the folder if it doesn't exist
     os.makedirs(config.output_path)
 
 
 client = OpenAI()
-#client = OpenAI(api_key=os.environ["other OPENAI_API_KEY"])
+#client = OpenAI(api_key=os.environ["OPENAI_API_KEY_YALE"])
 
 pattern = re.compile(rf"{config.data_name}_(\d+)_{config.use_full_name}_{config.with_self_type}_{config.with_region_name}_{config.Graph_type}_{config.with_negatives}_{config.with_CoT}_{config.with_numbers}_{config.with_domain_name}{config.replicate}\.json")
 # 遍历文件夹中的所有文件
@@ -37,7 +43,7 @@ for filename in os.listdir(config.folder_path):
         # 提取数字并转换为整数
         number = int(match.group(1))
 
-        # # in case of the batch 3 is not finished
+        # # in case of the batch k is not finished
         # if number == 2:
         #     continue
         
@@ -59,14 +65,27 @@ for filename in os.listdir(config.folder_path):
         batch_id = submit_batch.id
         print(client.batches.retrieve(submit_batch.id))
 
-        s = check_batch_status(client, batch_id)
-        if s == "completed":
-            file_response = client.files.content(client.batches.retrieve(submit_batch.id).output_file_id)
-            save_name = f"response_{config.data_name}_{number}_{config.use_full_name}_{config.with_self_type}_{config.with_region_name}_{config.Graph_type}_{config.with_negatives}_{config.with_CoT}_{config.with_numbers}_{config.with_domain_name}{config.replicate}.txt"
-            output_file_name = f"{config.output_path}/{save_name}"
-            # Open the file in write mode and save the string
-            with open(output_file_name, 'w') as file:
-                file.write(file_response.text)  
-            print(f"The response has been saved to {output_file_name}")
+        if parallel_run!="parallel":
+            s = check_batch_status(client, batch_id)
+            if s == "completed":
+                file_response = client.files.content(client.batches.retrieve(submit_batch.id).output_file_id)
+                save_name = f"response_{config.data_name}_{number}_{config.use_full_name}_{config.with_self_type}_{config.with_region_name}_{config.Graph_type}_{config.with_negatives}_{config.with_CoT}_{config.with_numbers}_{config.with_domain_name}{config.replicate}.txt"
+                output_file_name = f"{config.output_path}/{save_name}"
+                # Open the file in write mode and save the string
+                with open(output_file_name, 'w') as file:
+                    file.write(file_response.text)  
+                print(f"The response has been saved to {output_file_name}")
+            else:
+                print(f"Failed with {s}, batch id: {submit_batch.id}")
         else:
-            print(f"Failed with {s}, batch id: {submit_batch.id}")
+            # save batch_id for gathering results later
+            # create a txt file named with config.data_name+ config.replicate + time. if the file exists, open it and add batch id as a new line in the end of it. 
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            batch_id_file = f"outs/{config.data_name}{config.replicate}_{timestamp}.txt"
+            
+            # Open file in append mode ('a') - creates file if it doesn't exist
+            with open(batch_id_file, 'a') as f:
+                f.write(f"{batch_id}\n")
+            
+            print(f"Batch ID {batch_id} saved to {batch_id_file}")
+            

@@ -1,0 +1,24 @@
+data_name: "BZ5"
+r: 700
+replicate: "_test"
+tissue_region: "mPFC region of mice"
+celltype_name: "cell_type"
+pos_name: ["x", "y"]
+name_truth: "niche_truth"
+model_type: "zeroshot_end2end"
+openai_url: "/v1/chat/completions"
+use_full_name: true
+with_self_type: true
+with_region_name: true
+Graph_type: "countPlusGenes"  # "count" or "countPlusGenes" or "GeneOnly"
+with_negatives: false
+minimal_f: 0  
+top_n: 7  
+with_numbers: true
+with_domain_name: true
+gpt_model: "gpt-4o-mini"
+oneshot_prompt: ""
+system_prompt: ""
+output_type: "niche"
+confident_output: false
+

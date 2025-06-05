@@ -24,8 +24,6 @@ class Config:
     data_name: str
     r: float
     tissue_region: str
-    celltype_name: str
-    pos_name: list[str]
     model_type: str
     minimal_f: float   # minimal frequency of cell type in the neighborhood
     top_n: int
@@ -33,6 +31,8 @@ class Config:
     with_negatives: bool
     with_numbers: bool 
     with_CoT: bool = False
+    celltype_name: Optional[str] = None
+    pos_name: Optional[list[str]] = None
     name_truth: Optional[str] = None
     replicate: str = ""
     openai_url: str = "/v1/chat/completions"
@@ -838,7 +838,7 @@ def get_unique_prompts(df, config, prompt_func, df_extra=None):
     # Generate prompts for each row and track duplicates
     print("Generating prompts for each row...")
     for i in tqdm(range(len(df))):
-        if df_extra is None:
+        if config.Graph_type != "countPlusGenes":
             prompt_text = prompt_func(df, [i], config)
         else:
             prompt_text = prompt_func(df, df_extra, [i], config)

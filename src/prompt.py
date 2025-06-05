@@ -1,9 +1,9 @@
-from utils import sig_figs, extract_output_microenvironments
+from .utils import sig_figs, extract_output_microenvironments
 import json
 import os
 import time
 import pandas as pd
-from utils import get_farthest_cell_types
+from .utils import get_farthest_cell_types
 
 def zeroshot_geneorder(df, rows, config):
     """

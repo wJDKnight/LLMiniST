@@ -4,8 +4,8 @@ import pandas as pd
 import scanpy as sc
 import scipy
 from sklearn.model_selection import train_test_split
-from utils import *
-import prompt
+from src.utils import *
+import src.prompt as prompt
 import subprocess
 import openai
 import json
