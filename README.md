@@ -57,6 +57,9 @@ Ensure your data directory contains the required files:
 - `pos.csv` (spatial coordinates)
 - `domain.csv` (optional, ground truth labels)
 
+For single-cell-level spatial data, celltype.csv should be a single-column dataframe containing cell type annotations.
+For spot-level spatial data, celltype.csv should contain the cell type proportions for each spot (like example_data/BZ5/celltype_onehot.csv), typically obtained through cell type deconvolution methods.
+
 #### 3. Configuration
 Edit the YAML configuration file in `model_config/` to match your dataset and analysis requirements.
 
