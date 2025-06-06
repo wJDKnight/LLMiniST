@@ -21,7 +21,24 @@ The easiest way to get started with LLMiniST is through the interactive Jupyter 
 
 ### Step-by-Step Workflow
 
+#### 0. Install with conda in Linux
+
+```bash
+conda create -n stgpt python=3.12
+conda activate stgpt
+conda install -c conda-forge scikit-learn pandas scipy jupyter notebook jupyterlab
+pip install -q -U google-generativeai openai kmodes
+conda install -c conda-forge scanpy python-igraph leidenalg
+pip install tiktoken
+
+# if use jupyterlab-lsp
+conda install -c conda-forge 'jupyterlab>=4.1.0,<5.0.0a0' jupyterlab-lsp
+conda install -c conda-forge python-lsp-server
+```
+
+
 #### 1. Environment Setup
+
 ```bash
 # Activate your conda environment
 conda activate stgpt
@@ -30,6 +47,8 @@ conda activate stgpt
 export OPENAI_API_KEY="your_openai_api_key"
 export API_KEY="your_gemini_api_key"  # If using Gemini
 ```
+
+[Here](https://platform.openai.com/docs/libraries?language=python) is instructions about how to setup OpenAI keys
 
 #### 2. Data Preparation
 Ensure your data directory contains the required files:
@@ -61,20 +80,6 @@ For faster results (but potentially higher cost), you can use the Gemini API dir
 - tiktoken
 - kmodes
 
-### Install with conda in Linux
-
-```bash
-conda create -n stgpt python=3.12
-conda activate stgpt
-conda install -c conda-forge scikit-learn pandas scipy jupyter notebook jupyterlab
-pip install -q -U google-generativeai openai kmodes
-conda install -c conda-forge scanpy python-igraph leidenalg
-pip install tiktoken
-
-# if use jupyterlab-lsp
-conda install -c conda-forge 'jupyterlab>=4.1.0,<5.0.0a0' jupyterlab-lsp
-conda install -c conda-forge python-lsp-server
-```
 
 ## Data Format
 
