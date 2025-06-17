@@ -7,7 +7,7 @@ from scipy.spatial.distance import pdist, squareform
 from scipy.sparse import csr_matrix
 from collections import defaultdict
 from tqdm import tqdm
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os
 import yaml
 import pickle
@@ -31,8 +31,8 @@ class Config:
     with_negatives: bool
     with_numbers: bool 
     with_CoT: bool = False
-    celltype_name: Optional[str] = None
-    pos_name: Optional[list[str]] = None
+    celltype_name: Optional[str] = "celltype"
+    pos_name: Optional[list[str]] = field(default_factory=lambda: ["x", "y"])
     name_truth: Optional[str] = None
     replicate: str = ""
     openai_url: str = "/v1/chat/completions"

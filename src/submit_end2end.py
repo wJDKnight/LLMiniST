@@ -80,7 +80,7 @@ for filename in os.listdir(config.folder_path):
         else:
             # save batch_id for gathering results later
             # create a txt file named with config.data_name+ config.replicate + time. if the file exists, open it and add batch id as a new line in the end of it. 
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            timestamp = time.strftime("%Y%m%d_%H")
             batch_id_file = f"outs/{config.data_name}{config.replicate}_{timestamp}.txt"
             
             # Open file in append mode ('a') - creates file if it doesn't exist
